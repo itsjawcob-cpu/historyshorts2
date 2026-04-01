@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HistoryShorts Auto-Pilot</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Inter:wght@300;400;600&display=swap');
+        :root { --gold: #D4AF37; --amber: #FFBF00; --dark-bg: #05070A; --card-bg: #0F1218; }
+        body { background-color: var(--dark-bg); color: #e5e7eb; font-family: 'Inter', sans-serif; }
+        h1, h2, h3, .cinzel { font-family: 'Cinzel', serif; }
+        .gold-glow { text-shadow: 0 0 10px rgba(212,175,55,0.5); }
+        .gold-border { border: 1px solid var(--gold); }
+        .btn-gold { background: linear-gradient(135deg, var(--gold), var(--amber)); color: black; font-weight: bold; transition: all 0.3s ease; }
+        .btn-gold:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(212,175,55,0.4); }
+        .category-card { transition: all 0.3s cubic-bezier(0.4,0,0.2,1); cursor: pointer; border: 1px solid #1f2937; }
+        .category-card.active { border-color: var(--gold); background: rgba(212,175,55,0.1); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: var(--dark-bg); }
+        ::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--gold); }
+        .loading-shimmer { background: linear-gradient(90deg,#0F1218 25%,#1a1f29 50%,#0F1218 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+        @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+        .nav-link { display:flex; flex-direction:column; align-items:center; justify-content:center; width:48px; height:48px; border-radius:12px; transition: all 0.2s; }
+        .nav-link:hover, .nav-link.active { background: rgba(212,175,55,0.1); color: var(--gold) !important; }
+        input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(1); }
+        .day-btn.active { background: rgba(212,175,55,0.2); border-color: var(--gold); color: var(--gold); }
+        textarea { resize: vertical; }
+        .toast { position:fixed; bottom:2rem; right:2rem; z-index:9999; padding:1rem 1.5rem; border-radius:0.75rem; font-size:0.875rem; font-weight:600; transition:all 0.3s; }
+    </style>
+</head>
+<body class="min-h-screen">
+
+<!-- TOAST NOTIFICATION -->
+<div id="toast" class="toast hidden"></div>
+
+<!-- ONBOARDING OVERLAY -->
+<div id="onboarding" class="fixed inset-0 z-50 bg-black flex items-center justify-center p-4">
+    <div class="max-w-xl w-full bg-[#0F1218] gold-border p-8 rounded-2xl shadow-2xl">
+        <h1 class="text-4xl font-bold text-center mb-1 gold-glow text-[#D4AF37]" style="font-family:'Cinzel',serif">HISTORY SHORTS</h1>
+        <p class="text-center text-gray-500 mb-8 uppercase tracking-widest text-xs">Auto-Pilot Content Engine</p>
+        <div class="space-y-5">
+            <div>
+                <label class="block text-xs font-bold text-gray-500 mb-2 uppercase tracking-widest">Google Gemini API Key</label>
+                <input type="password" id="geminiKey" class="w-full bg-black border border-gray-800 p-3 rounded-lg focus:outline-none focus:border-yellow-600 text-sm" placeholder="Paste your Gemini API key...">
+                <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-[10px] text-amber-500 mt-1 block hover:underline">→ Get free Gemini API key at aistudio.google.com</a>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-gray-500 mb-2 uppercase tracking-widest">YouTube OAuth Client ID</label>
+                <input type="text" id="ytClientId" class="w-full bg-black border border-gray-800 p-3 rounded-lg focus:outline-none focus:border-yellow-600 text-sm" placeholder="000000000-xxxx.apps.googleusercontent.com">
+                <a href="https://console.cloud.google.com/" target="_blank" class="text-[10px] text-amber-500 mt-1 block hover:underline">→ Get from Google Cloud Console (enable YouTube Data API v3)</a>
+            </div>
+            <div class="bg-black/40 border border-gray-800 rounded-lg p-4 text-xs text-gray-500 space-y-1">
+                <p class="text-gray-400 font-bold mb-2">Quick setup guide:</p>
+                <p>1. Go to console.cloud.google.com → New project</p>
+                <p>2. Enable <strong class="text-gray-300">YouTube Data API v3</strong></p>
+                <p>3. Credentials → Create → OAuth 2.0 Client ID → Web application</p>
+                <p>4. Add <strong class="text-gray-300">this page's URL</strong> as an Authorized redirect URI</p>
+            </div>
+            <button onclick="saveAuth()" class="w-full btn-gold py-4 rounded-xl uppercase tracking-widest text-sm mt-2">
+                ⚡ Initialize Engine
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app" class="hidden">
+
+    <!-- Sidebar -->
+    <nav class="fixed left-0 top-0 h-full w-20 bg-black border-r border-gray-900 flex flex-col items-center py-6 space-y-3 z-40">
+        <div class="text-[#D4AF37] text-xl font-bold mb-4" style="font-family:'Cinzel',serif">H</div>
+        <button onclick="showTab('dashboard')" id="nav-dashboard" class="nav-link text-gray-500" title="Dashboard">
+            <i class="fa-solid fa-house-chimney text-lg"></i>
+        </button>
+        <button onclick="showTab('generator')" id="nav-generator" class="nav-link text-gray-500" title="Generator">
+            <i class="fa-solid fa-wand-magic-sparkles text-lg"></i>
+        </button>
+        <button onclick="showTab('queue')" id="nav-queue" class="nav-link text-gray-500 relative" title="Queue & History">
+            <i class="fa-solid fa-clock-rotate-left text-lg"></i>
+            <span id="queueBadge" class="absolute -top-1 -right-1 bg-amber-600 text-[9px] w-4 h-4 flex items-center justify-center rounded-full hidden">0</span>
+        </button>
+        <button onclick="showTab('settings')" id="nav-settings" class="nav-link text-gray-500" title="Settings">
+            <i class="fa-solid fa-gears text-lg"></i>
+        </button>
+        <div class="flex-grow"></div>
+        <div id="channelAvatar" class="w-10 h-10 rounded-full border border-gray-700 overflow-hidden flex items-center justify-center bg-gray-900">
+            <i class="fa-solid fa-user text-gray-600 text-sm"></i>
+        </div>
+    </nav>
+
+    <!-- Header -->
+    <header class="ml-20 px-8 py-4 flex justify-between items-center border-b border-gray-900 bg-black/60 backdrop-blur-md sticky top-0 z-30">
+        <div>
+            <h2 id="tabTitle" class="text-xl font-bold gold-glow uppercase tracking-widest" style="font-family:'Cinzel',serif">Dashboard</h2>
+            <div id="countdown" class="text-xs text-amber-600 mt-0.5 font-mono"></div>
+        </div>
+        <div class="flex items-center gap-3">
+            <div id="statusDot" class="flex items-center gap-2 bg-gray-900 px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest">
+                <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                ENGINE READY
+            </div>
+            <button onclick="connectYouTube()" id="connectBtn" class="text-xs bg-red-700 hover:bg-red-600 px-4 py-2 rounded-lg font-bold transition-colors">
+                <i class="fa-brands fa-youtube mr-1"></i> CONNECT YOUTUBE
+            </button>
+        </div>
+    </header>
+
+    <main class="ml-20 p-8">
+
+        <!-- DASHBOARD -->
+        <section id="dashboard" class="tab-content active space-y-8">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+
+                <!-- Categories -->
+                <div class="bg-[#0F1218] p-6 rounded-2xl border border-gray-800">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-sm font-bold uppercase tracking-widest text-gray-300">Content Categories</h3>
+                        <div class="flex gap-2">
+                            <button onclick="toggleAllCats(true)" class="text-[10px] bg-gray-800 px-3 py-1 rounded hover:bg-gray-700 transition-colors">SELECT ALL</button>
+                            <button onclick="toggleAllCats(false)" class="text-[10px] bg-gray-800 px-3 py-1 rounded hover:bg-gray-700 transition-colors">CLEAR</button>
+                        </div>
+                    </div>
+                    <div id="categoryGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-2 overflow-y-auto max-h-96 pr-1"></div>
+                </div>
+
+                <!-- Scheduling -->
+                <div class="bg-[#0F1218] p-6 rounded-2xl border border-gray-800">
+                    <h3 class="text-sm font-bold uppercase tracking-widest text-gray-300 mb-4">Scheduling</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="text-[10px] text-gray-500 uppercase tracking-widest">Frequency</label>
+                            <select id="postFreq" onchange="toggleCustomDays()" class="w-full bg-black border border-gray-800 p-2.5 rounded-lg mt-1 text-sm outline-none focus:border-amber-600 text-gray-300">
+                                <option value="daily">Daily</option>
+                                <option value="2days">Every 2 Days</option>
+                                <option value="weekly">Weekly</option>
+                                <option value="custom">Custom Days</option>
+                            </select>
+                        </div>
+                        <div id="customDays" class="hidden grid grid-cols-7 gap-1">
+                            <button class="day-btn text-[10px] border border-gray-800 py-1.5 rounded hover:border-amber-600 transition-colors" onclick="toggleDay(this)" data-day="1">MON</button>
+                            <button class="day-btn text-[10px] border border-gray-800 py-1.5 rounded hover:border-amber-600 transition-colors" onclick="toggleDay(this)" data-day="2">TUE</button>
+                            <button class="day-btn text-[10px] border border-gray-800 py-1.5 rounded hover:border-amber-600 transition-colors" onclick="toggleDay(this)" data-day="3">WED</button>
+                            <button class="day-btn text-[10px] border border-gray-800 py-1.5 rounded hover:border-amber-600 transition-colors" onclick="toggleDay(this)" data-day="4">THU</button>
+                            <button class="day-btn text-[10px] border border-gray-800 py-1.5 rounded hover:border-amber-600 transition-colors" onclick="toggleDay(this)" data-day="5">FRI</button>
+                            <button class="day-btn text-[10px] border border-gray-800 py-1.5 rounded hover:border-amber-600 transition-colors" onclick="toggleDay(this)" data-day="6">SAT</button>
+                            <button class="day-btn text-[10px] border border-gray-800 py-1.5 rounded hover:border-amber-600 transition-colors" onclick="toggleDay(this)" data-day="0">SUN</button>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="text-[10px] text-gray-500 uppercase tracking-widest">Posting Time</label>
+                                <input type="time" id="postTime" class="w-full bg-black border border-gray-800 p-2.5 rounded-lg mt-1 text-sm text-gray-300 outline-none focus:border-amber-600" value="09:00">
+                            </div>
+                            <div>
+                                <label class="text-[10px] text-gray-500 uppercase tracking-widest">Videos Per Session</label>
+                                <input type="number" id="videoCount" class="w-full bg-black border border-gray-800 p-2.5 rounded-lg mt-1 text-sm text-gray-300 outline-none focus:border-amber-600" value="1" min="1" max="3">
+                            </div>
+                        </div>
+                        <div id="schedulePreview" class="text-xs text-amber-500 italic"></div>
+                        <button onclick="saveSchedule()" class="w-full bg-amber-600/10 text-amber-500 border border-amber-700/40 py-3 rounded-xl text-xs font-bold hover:bg-amber-600/20 transition-colors uppercase tracking-widest">
+                            Update Schedule
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Stats row -->
+            <div class="grid grid-cols-3 gap-4">
+                <div class="bg-[#0F1218] border border-gray-800 rounded-2xl p-5 text-center">
+                    <div id="statQueued" class="text-3xl font-bold text-amber-500">0</div>
+                    <div class="text-[10px] text-gray-500 uppercase tracking-widest mt-1">Queued</div>
+                </div>
+                <div class="bg-[#0F1218] border border-gray-800 rounded-2xl p-5 text-center">
+                    <div id="statPosted" class="text-3xl font-bold text-green-500">0</div>
+                    <div class="text-[10px] text-gray-500 uppercase tracking-widest mt-1">Posted</div>
+                </div>
+                <div class="bg-[#0F1218] border border-gray-800 rounded-2xl p-5 text-center">
+                    <div id="statCats" class="text-3xl font-bold text-blue-400">0</div>
+                    <div class="text-[10px] text-gray-500 uppercase tracking-widest mt-1">Categories Active</div>
+                </div>
+            </div>
+
+            <!-- Keep-open reminder -->
+            <div class="bg-amber-900/10 border border-amber-800/30 rounded-xl p-4 flex items-start gap-3">
+                <i class="fa-solid fa-triangle-exclamation text-amber-600 mt-0.5"></i>
+                <p class="text-xs text-amber-700">Keep this tab open for auto-posting to work. The scheduler runs every minute and checks if it's time to generate and post. Bookmark this page and open it daily.</p>
+            </div>
+        </section>
+
+        <!-- GENERATOR -->
+        <section id="generator" class="tab-content space-y-6">
+
+            <!-- Script Generator -->
+            <div class="bg-[#0F1218] p-6 rounded-2xl border border-gray-800 min-h-96">
+
+                <!-- Initial state -->
+                <div id="genInitial" class="flex flex-col items-center justify-center py-20 gap-6">
+                    <i class="fa-solid fa-scroll text-6xl text-gray-800"></i>
+                    <p class="text-gray-600 text-sm">Select categories on the Dashboard, then generate your script</p>
+                    <button onclick="generateScript()" class="btn-gold px-10 py-4 rounded-full text-sm uppercase tracking-widest">
+                        <i class="fa-solid fa-wand-magic-sparkles mr-2"></i> Generate Script
+                    </button>
+                </div>
+
+                <!-- Loading -->
+                <div id="genLoading" class="hidden space-y-4 py-8">
+                    <div class="text-center text-amber-500 text-sm mb-6 animate-pulse">⚔️ Consulting the ancient scrolls...</div>
+                    <div class="h-8 w-2/5 loading-shimmer rounded-lg"></div>
+                    <div class="h-4 w-full loading-shimmer rounded mt-2"></div>
+                    <div class="h-48 w-full loading-shimmer rounded-lg mt-2"></div>
+                    <div class="h-4 w-3/4 loading-shimmer rounded"></div>
+                </div>
+
+                <!-- Result -->
+                <div id="genResult" class="hidden">
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div class="lg:col-span-2 space-y-4">
+                            <div>
+                                <label class="text-[10px] text-gray-500 uppercase tracking-widest">Title</label>
+                                <input id="resTitle" class="w-full bg-transparent text-2xl font-bold text-amber-500 border-b border-gray-800 pb-2 mt-1 outline-none focus:border-amber-600" style="font-family:'Cinzel',serif">
+                            </div>
+                            <div>
+                                <label class="text-[10px] text-gray-500 uppercase tracking-widest">Script</label>
+                                <textarea id="resScript" rows="12" class="w-full bg-black/40 border border-gray-800 p-4 rounded-xl text-sm leading-relaxed mt-1 focus:outline-none focus:border-amber-700 text-gray-300"></textarea>
+                            </div>
+                            <div>
+                                <label class="text-[10px] text-gray-500 uppercase tracking-widest">YouTube Description</label>
+                                <textarea id="resDesc" rows="3" class="w-full bg-black/40 border border-gray-800 p-4 rounded-xl text-sm leading-relaxed mt-1 focus:outline-none focus:border-amber-700 text-gray-400"></textarea>
+                            </div>
+                            <div class="flex gap-3 flex-wrap">
+                                <button onclick="generateScript()" class="bg-gray-800 hover:bg-gray-700 px-5 py-2 rounded-lg text-xs transition-colors uppercase tracking-wider">
+                                    <i class="fa-solid fa-rotate mr-1"></i> Regenerate
+                                </button>
+                                <button onclick="saveToQueue()" class="btn-gold px-6 py-2 rounded-lg text-xs uppercase tracking-wider">
+                                    <i class="fa-solid fa-clock mr-1"></i> Add to Queue
+                                </button>
+                                <button onclick="copyScript()" class="bg-blue-900/30 text-blue-400 border border-blue-900/50 hover:bg-blue-900/50 px-5 py-2 rounded-lg text-xs transition-colors uppercase tracking-wider">
+                                    <i class="fa-solid fa-copy mr-1"></i> Copy Script
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="space-y-4">
+                            <div class="bg-black/40 border border-gray-800 rounded-xl p-4">
+                                <h4 class="text-[10px] font-bold text-gray-500 uppercase tracking-widest border-b border-gray-800 pb-2 mb-3">Metadata</h4>
+                                <div class="space-y-3">
+                                    <div>
+                                        <label class="text-[9px] text-gray-600 uppercase">Hook (5 sec opener)</label>
+                                        <p id="resHook" class="text-xs text-amber-400 mt-1 italic leading-relaxed"></p>
+                                    </div>
+                                    <div>
+                                        <label class="text-[9px] text-gray-600 uppercase">Video Prompt</label>
+                                        <p id="resVideoPrompt" class="text-xs text-blue-400 mt-1 italic leading-relaxed"></p>
+                                        <button onclick="copyVideoPrompt()" class="text-[9px] text-gray-500 hover:text-blue-400 mt-1 transition-colors">copy →</button>
+                                    </div>
+                                    <div>
+                                        <label class="text-[9px] text-gray-600 uppercase">Thumbnail Idea</label>
+                                        <p id="resThumb" class="text-xs text-gray-400 mt-1 leading-relaxed"></p>
+                                    </div>
+                                    <div>
+                                        <label class="text-[9px] text-gray-600 uppercase">Tags</label>
+                                        <div id="resTags" class="flex flex-wrap gap-1 mt-2"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Production Studio -->
+            <div class="bg-[#0F1218] p-6 rounded-2xl border border-gray-800">
+                <h3 class="text-sm font-bold uppercase tracking-widest text-gray-300 mb-6 flex items-center gap-2">
+                    <i class="fa-solid fa-clapperboard text-amber-500"></i> Production Studio
+                </h3>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+
+                    <div class="space-y-3 md:border-r border-gray-800 pr-4">
+                        <div class="text-amber-500 font-bold text-xs uppercase tracking-widest">Step 1 · Voice</div>
+                        <p class="text-xs text-gray-500">Copy your script → paste into ElevenLabs (free) → download MP3</p>
+                        <a href="https://elevenlabs.io" target="_blank" class="block text-[10px] text-blue-400 hover:underline">→ Open ElevenLabs</a>
+                        <label class="text-[10px] text-gray-600 uppercase">Upload your audio</label>
+                        <input type="file" id="audioFile" accept="audio/*" class="w-full text-xs text-gray-500 file:bg-gray-800 file:border-none file:text-white file:px-3 file:py-1 file:rounded file:text-xs file:cursor-pointer">
+                    </div>
+
+                    <div class="space-y-3 md:border-r border-gray-800 pr-4">
+                        <div class="text-amber-500 font-bold text-xs uppercase tracking-widest">Step 2 · Video</div>
+                        <p class="text-xs text-gray-500">Copy the video prompt → paste into Runway or Pika → download vertical MP4 (9:16)</p>
+                        <a href="https://pika.art" target="_blank" class="block text-[10px] text-blue-400 hover:underline">→ Open Pika</a>
+                        <a href="https://runwayml.com" target="_blank" class="block text-[10px] text-blue-400 hover:underline">→ Open Runway</a>
+                        <label class="text-[10px] text-gray-600 uppercase">Upload your video</label>
+                        <input type="file" id="videoFile" accept="video/*" class="w-full text-xs text-gray-500 file:bg-gray-800 file:border-none file:text-white file:px-3 file:py-1 file:rounded file:text-xs file:cursor-pointer">
+                    </div>
+
+                    <div class="space-y-3 md:border-r border-gray-800 pr-4">
+                        <div class="text-amber-500 font-bold text-xs uppercase tracking-widest">Step 3 · Merge</div>
+                        <p class="text-xs text-gray-500">Combine your audio and video files in the browser, no software needed.</p>
+                        <button onclick="mergeAssets()" class="w-full bg-gray-800 hover:bg-gray-700 py-2 rounded-lg text-xs transition-colors uppercase tracking-wider mt-2">
+                            <i class="fa-solid fa-layer-group mr-1"></i> Merge Files
+                        </button>
+                        <div id="mergeStatus" class="text-[10px] text-gray-500 italic"></div>
+                    </div>
+
+                    <div class="space-y-3">
+                        <div class="text-amber-500 font-bold text-xs uppercase tracking-widest">Step 4 · Publish</div>
+                        <p class="text-xs text-gray-500">Upload merged video to YouTube with auto-filled title, description, and tags.</p>
+                        <button onclick="uploadToYouTube()" id="publishBtn" class="w-full btn-gold py-3 rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-2 mt-2">
+                            <i class="fa-brands fa-youtube"></i> Post to YouTube
+                        </button>
+                        <div id="progressContainer" class="hidden">
+                            <div class="w-full bg-gray-900 h-1.5 rounded-full overflow-hidden">
+                                <div id="progressBar" class="h-full bg-amber-500 transition-all duration-500" style="width:0%"></div>
+                            </div>
+                            <p id="progressText" class="text-[10px] text-center text-gray-500 italic mt-1"></p>
+                        </div>
+                        <div id="successLink" class="hidden text-center">
+                            <a id="ytLink" href="#" target="_blank" class="text-xs text-green-400 font-bold hover:underline">
+                                <i class="fa-solid fa-check-circle mr-1"></i> View on YouTube →
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- QUEUE & HISTORY -->
+        <section id="queue" class="tab-content space-y-8">
+            <div>
+                <h3 class="text-sm font-bold uppercase tracking-widest text-gray-300 mb-4">Scheduled Queue</h3>
+                <div id="queueList" class="space-y-3"></div>
+            </div>
+            <hr class="border-gray-900">
+            <div>
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-sm font-bold uppercase tracking-widest text-gray-300">Posted History</h3>
+                    <button onclick="exportData()" class="text-[10px] bg-gray-800 px-3 py-1 rounded hover:bg-gray-700 transition-colors uppercase">Export CSV</button>
+                </div>
+                <div id="historyList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+            </div>
+        </section>
+
+        <!-- SETTINGS -->
+        <section id="settings" class="tab-content max-w-xl mx-auto">
+            <div class="bg-[#0F1218] p-8 rounded-2xl border border-gray-800 space-y-8">
+                <div>
+                    <h4 class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">Update API Keys</h4>
+                    <div class="space-y-3">
+                        <input type="password" id="setGemini" class="w-full bg-black border border-gray-800 p-2.5 rounded-lg text-sm text-gray-300 outline-none focus:border-amber-600" placeholder="New Gemini API Key">
+                        <input type="text" id="setClientId" class="w-full bg-black border border-gray-800 p-2.5 rounded-lg text-sm text-gray-300 outline-none focus:border-amber-600" placeholder="New YouTube Client ID">
+                        <button onclick="updateKeys()" class="w-full btn-gold py-2.5 rounded-lg text-xs font-bold uppercase tracking-widest">Update Keys</button>
+                    </div>
+                </div>
+                <div>
+                    <h4 class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">System Controls</h4>
+                    <div class="space-y-3">
+                        <button onclick="disconnectYT()" class="w-full bg-red-900/10 text-red-500 border border-red-900/40 px-4 py-2.5 rounded-lg text-sm hover:bg-red-900/20 transition-colors">
+                            <i class="fa-brands fa-youtube mr-2"></i> Disconnect YouTube
+                        </button>
+                        <button onclick="resetApp()" class="w-full bg-gray-900 text-gray-500 px-4 py-2.5 rounded-lg text-sm hover:bg-red-900/20 hover:text-red-400 transition-colors">
+                            <i class="fa-solid fa-triangle-exclamation mr-2"></i> Hard Reset (clears all data)
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+</div>
+
+<!-- Hidden canvas for video merge -->
+<canvas id="mergeCanvas" width="720" height="1280" class="hidden"></canvas>
+
+<script>
+// ─── CONFIG ────────────────────────────────────────────────
+const CATEGORIES = [
+    { id:'ancient',    label:'Ancient World',        icon:'🏛️' },
+    { id:'medieval',   label:'Medieval',             icon:'⚔️' },
+    { id:'renaissance',label:'Renaissance',          icon:'🎨' },
+    { id:'pirates',    label:'Age of Exploration',   icon:'🏴‍☠️' },
+    { id:'french_rev', label:'French Revolution',    icon:'🥖' },
+    { id:'ww',         label:'World Wars',           icon:'🪖' },
+    { id:'cold_war',   label:'Cold War',             icon:'🕵️' },
+    { id:'mysteries',  label:'Ancient Mysteries',    icon:'🗿' },
+    { id:'victorian',  label:'Victorian Era',        icon:'🎩' },
+    { id:'roman',      label:'Roman Empire',         icon:'🏟️' },
+    { id:'viking',     label:'Viking Age',           icon:'⛵' },
+    { id:'samurai',    label:'Samurai Japan',        icon:'🏮' },
+    { id:'us_hist',    label:'American History',     icon:'🦅' },
+    { id:'africa',     label:'African Empires',      icon:'🐘' },
+    { id:'space',      label:'Space Race',           icon:'🚀' },
+    { id:'assassins',  label:'Assassinations',       icon:'🎯' },
+    { id:'lost',       label:'Lost Civilizations',   icon:'🏜️' },
+    { id:'leaders',    label:'Legendary Leaders',    icon:'👑' },
+    { id:'secrets',    label:'Secret Societies',     icon:'👁️' },
+    { id:'disaster',   label:'Natural Disasters',    icon:'🌋' }
+];
+
+// ─── STATE ─────────────────────────────────────────────────
+let state = {
+    geminiKey:    localStorage.getItem('hs_gemini_key') || '',
+    ytClientId:   localStorage.getItem('hs_yt_client_id') || '',
+    ytToken:      null,
+    selectedCats: JSON.parse(localStorage.getItem('hs_cats') || '[]'),
+    schedule:     JSON.parse(localStorage.getItem('hs_sched') || '{"freq":"daily","time":"09:00","count":1,"days":[]}'),
+    queue:        JSON.parse(localStorage.getItem('hs_queue') || '[]'),
+    history:      JSON.parse(localStorage.getItem('hs_history') || '[]'),
+    currentGen:   null,
+    mergedBlob:   null
+};
+
+// ─── INIT ──────────────────────────────────────────────────
+window.onload = () => {
+    if (state.geminiKey && state.ytClientId) {
+        document.getElementById('onboarding').classList.add('hidden');
+        document.getElementById('app').classList.remove('hidden');
+        checkAuthCallback();
+        renderCategories();
+        applyScheduleToUI();
+        updateStats();
+        startScheduler();
+    }
+};
+
+// ─── AUTH ──────────────────────────────────────────────────
+function saveAuth() {
+    const gk  = document.getElementById('geminiKey').value.trim();
+    const cid = document.getElementById('ytClientId').value.trim();
+    if (!gk || !cid) { toast('Please fill in both fields', 'error'); return; }
+    localStorage.setItem('hs_gemini_key', gk);
+    localStorage.setItem('hs_yt_client_id', cid);
+    location.reload();
+}
+
+function connectYouTube() {
+    const scopes = 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly';
+    const redirect = encodeURIComponent(window.location.origin + window.location.pathname);
+    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${state.ytClientId}&redirect_uri=${redirect}&response_type=token&scope=${encodeURIComponent(scopes)}`;
+    window.location.href = url;
+}
+
+function checkAuthCallback() {
+    const params = new URLSearchParams(window.location.hash.substring(1));
+    const token  = params.get('access_token');
+    if (!token) return;
+    state.ytToken = token;
+    const btn = document.getElementById('connectBtn');
+    btn.innerHTML = '<i class="fa-brands fa-youtube mr-1"></i> CONNECTED ✅';
+    btn.classList.replace('bg-red-700','bg-green-700');
+    fetchYTProfile();
+    window.history.replaceState({}, document.title, window.location.pathname);
+    toast('YouTube connected!', 'success');
+}
+
+async function fetchYTProfile() {
+    try {
+        const res  = await fetch('https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true', { headers:{ 'Authorization': `Bearer ${state.ytToken}` } });
+        const data = await res.json();
+        const ch   = data.items[0].snippet;
+        document.getElementById('channelAvatar').innerHTML = `<img src="${ch.thumbnails.default.url}" title="${ch.title}" class="w-full h-full object-cover">`;
+    } catch(e) { console.error('Profile fetch failed', e); }
+}
+
+function disconnectYT() {
+    state.ytToken = null;
+    toast('YouTube disconnected', 'info');
+    location.reload();
+}
+
+// ─── CATEGORIES ────────────────────────────────────────────
+function renderCategories() {
+    document.getElementById('categoryGrid').innerHTML = CATEGORIES.map(c => `
+        <div onclick="toggleCat('${c.id}')" id="cat-${c.id}"
+             class="category-card bg-black p-3 rounded-xl text-center ${state.selectedCats.includes(c.id) ? 'active' : ''}">
+            <div class="text-xl mb-1">${c.icon}</div>
+            <div class="text-[9px] font-bold uppercase leading-tight">${c.label}</div>
+        </div>
+    `).join('');
+    updateStats();
+}
+
+function toggleCat(id) {
+    state.selectedCats = state.selectedCats.includes(id)
+        ? state.selectedCats.filter(c => c !== id)
+        : [...state.selectedCats, id];
+    localStorage.setItem('hs_cats', JSON.stringify(state.selectedCats));
+    renderCategories();
+}
+
+function toggleAllCats(select) {
+    state.selectedCats = select ? CATEGORIES.map(c => c.id) : [];
+    localStorage.setItem('hs_cats', JSON.stringify(state.selectedCats));
+    renderCategories();
+}
+
+// ─── SCHEDULE ──────────────────────────────────────────────
+function toggleCustomDays() {
+    const freq = document.getElementById('postFreq').value;
+    document.getElementById('customDays').classList.toggle('hidden', freq !== 'custom');
+    updateSchedulePreview();
+}
+
+function toggleDay(btn) {
+    btn.classList.toggle('active');
+    updateSchedulePreview();
+}
+
+function saveSchedule() {
+    const freq  = document.getElementById('postFreq').value;
+    const time  = document.getElementById('postTime').value;
+    const count = parseInt(document.getElementById('videoCount').value);
+    const days  = [...document.querySelectorAll('.day-btn.active')].map(b => parseInt(b.dataset.day));
+    state.schedule = { freq, time, count, days };
+    localStorage.setItem('hs_sched', JSON.stringify(state.schedule));
+    toast('Schedule saved!', 'success');
+    updateSchedulePreview();
+}
+
+function applyScheduleToUI() {
+    document.getElementById('postFreq').value  = state.schedule.freq;
+    document.getElementById('postTime').value  = state.schedule.time;
+    document.getElementById('videoCount').value= state.schedule.count;
+    if (state.schedule.freq === 'custom') {
+        document.getElementById('customDays').classList.remove('hidden');
+        state.schedule.days.forEach(d => {
+            const btn = document.querySelector(`.day-btn[data-day="${d}"]`);
+            if (btn) btn.classList.add('active');
+        });
+    }
+    updateSchedulePreview();
+}
+
+function updateSchedulePreview() {
+    const freq  = document.getElementById('postFreq').value;
+    const time  = document.getElementById('postTime').value;
+    const map   = { daily:'Every day', '2days':'Every 2 days', weekly:'Every week', custom:'Custom days' };
+    document.getElementById('schedulePreview').innerText = `📅 ${map[freq]} at ${time}`;
+}
+
+// ─── GENERATOR ─────────────────────────────────────────────
+async function generateScript() {
+    if (!state.selectedCats.length) { toast('Select at least one category first!', 'error'); showTab('dashboard'); return; }
+    if (!state.geminiKey) { toast('No Gemini API key set', 'error'); return; }
+
+    setGenState('loading');
+
+    const catId    = state.selectedCats[Math.floor(Math.random() * state.selectedCats.length)];
+    const catLabel = CATEGORIES.find(c => c.id === catId)?.label || 'History';
+
+    const prompt = `You are a viral YouTube Shorts historian. Generate a high-retention 60-second script about: ${catLabel}.
+Keep it punchy, mysterious, and fast-paced. Start with a shocking hook.
+Return ONLY a raw JSON object (no markdown, no backticks) with these exact keys:
+title, hook, script, videoPrompt, description, tags (array of strings), thumbnailIdea`;
+
+    try {
+        const res  = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${state.geminiKey}`, {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ contents:[{ parts:[{ text: prompt }] }] })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message);
+
+        let text = data.candidates[0].content.parts[0].text;
+        text = text.replace(/```json/g,'').replace(/```/g,'').trim();
+        const json = JSON.parse(text);
+        state.currentGen = json;
+        displayGen(json);
+        setGenState('result');
+    } catch(e) {
+        setGenState('initial');
+        toast('Gemini error: ' + e.message, 'error');
+    }
+}
+
+function setGenState(state) {
+    document.getElementById('genInitial').classList.toggle('hidden', state !== 'initial');
+    document.getElementById('genLoading').classList.toggle('hidden', state !== 'loading');
+    document.getElementById('genResult').classList.toggle('hidden', state !== 'result');
+}
+
+function displayGen(j) {
+    document.getElementById('resTitle').value       = j.title || '';
+    document.getElementById('resScript').value      = `[HOOK]\n${j.hook||''}\n\n[BODY]\n${j.script||''}`;
+    document.getElementById('resDesc').value        = j.description || '';
+    document.getElementById('resHook').innerText    = j.hook || '';
+    document.getElementById('resVideoPrompt').innerText = j.videoPrompt || '';
+    document.getElementById('resThumb').innerText   = j.thumbnailIdea || '';
+    document.getElementById('resTags').innerHTML    = (j.tags||[]).map(t => `<span class="bg-amber-900/30 text-amber-500 px-2 py-0.5 rounded text-[9px]">#${t}</span>`).join('');
+}
+
+function copyScript() {
+    navigator.clipboard.writeText(document.getElementById('resScript').value);
+    toast('Script copied!', 'success');
+}
+
+function copyVideoPrompt() {
+    navigator.clipboard.writeText(document.getElementById('resVideoPrompt').innerText);
+    toast('Video prompt copied!', 'success');
+}
+
+// ─── QUEUE ─────────────────────────────────────────────────
+function saveToQueue() {
+    if (!state.currentGen) { toast('Generate a script first', 'error'); return; }
+    // Sync editable fields back
+    state.currentGen.title       = document.getElementById('resTitle').value;
+    state.currentGen.script      = document.getElementById('resScript').value;
+    state.currentGen.description = document.getElementById('resDesc').value;
+    state.queue.push({ ...state.currentGen, qid: Date.now(), status:'scheduled', scheduledTime: Date.now() + 86400000 });
+    localStorage.setItem('hs_queue', JSON.stringify(state.queue));
+    updateQueueBadge();
+    updateStats();
+    toast('Added to queue!', 'success');
+    showTab('queue');
+}
+
+function deleteQueue(qid) {
+    state.queue = state.queue.filter(q => q.qid !== qid);
+    localStorage.setItem('hs_queue', JSON.stringify(state.queue));
+    updateQueueBadge();
+    updateStats();
+    renderQueue();
+    toast('Removed from queue', 'info');
+}
+
+function processQueueItem(qid) {
+    const item = state.queue.find(q => q.qid === qid);
+    if (!item) return;
+    state.currentGen = item;
+    displayGen(item);
+    setGenState('result');
+    showTab('generator');
+    toast('Loaded into generator', 'info');
+}
+
+function renderQueue() {
+    const qEl = document.getElementById('queueList');
+    qEl.innerHTML = state.queue.length
+        ? state.queue.map(item => `
+            <div class="bg-[#0F1218] p-4 rounded-xl border border-gray-800 flex justify-between items-center gap-4">
+                <div class="min-w-0">
+                    <div class="text-amber-500 font-bold text-sm truncate">${item.title}</div>
+                    <div class="text-[10px] text-gray-600 uppercase tracking-wider mt-0.5">Status: <span class="text-amber-600">${item.status}</span></div>
+                </div>
+                <div class="flex gap-2 flex-shrink-0">
+                    <button onclick="processQueueItem(${item.qid})" class="text-[10px] bg-green-900/20 text-green-500 border border-green-900/40 px-3 py-1.5 rounded-lg hover:bg-green-900/40 transition-colors">PRODUCE</button>
+                    <button onclick="deleteQueue(${item.qid})" class="text-gray-600 hover:text-red-500 transition-colors px-2"><i class="fa-solid fa-trash"></i></button>
+                </div>
+            </div>`).join('')
+        : '<p class="text-center text-gray-700 py-10 text-sm">Queue is empty — generate a script to get started</p>';
+
+    const hEl = document.getElementById('historyList');
+    hEl.innerHTML = state.history.length
+        ? state.history.map(item => `
+            <div class="bg-[#0F1218] border border-gray-900 rounded-xl overflow-hidden">
+                <div class="h-28 bg-gray-900/50 flex items-center justify-center">
+                    <i class="fa-brands fa-youtube text-3xl text-gray-700"></i>
+                </div>
+                <div class="p-4">
+                    <div class="text-xs font-bold truncate text-gray-200">${item.title}</div>
+                    <div class="text-[10px] text-gray-600 mt-1 mb-3">${new Date(item.date).toLocaleDateString()}</div>
+                    <a href="${item.url}" target="_blank" class="text-[10px] text-amber-500 font-bold hover:underline">VIEW ON YOUTUBE →</a>
+                </div>
+            </div>`).join('')
+        : '<p class="text-center text-gray-700 py-10 text-sm col-span-3">No posts yet</p>';
+}
+
+function updateQueueBadge() {
+    const badge = document.getElementById('queueBadge');
+    badge.innerText = state.queue.length;
+    badge.classList.toggle('hidden', state.queue.length === 0);
+}
+
+function updateStats() {
+    document.getElementById('statQueued').innerText = state.queue.length;
+    document.getElementById('statPosted').innerText = state.history.length;
+    document.getElementById('statCats').innerText   = state.selectedCats.length;
+}
+
+// ─── VIDEO MERGE ───────────────────────────────────────────
+async function mergeAssets() {
+    const vFile = document.getElementById('videoFile').files[0];
+    const aFile = document.getElementById('audioFile').files[0];
+    if (!vFile || !aFile) { toast('Upload both a video and an audio file first', 'error'); return; }
+
+    const status = document.getElementById('mergeStatus');
+    status.innerText = '⏳ Merging... this may take a minute';
+
+    try {
+        state.mergedBlob = await doMerge(vFile, aFile);
+        status.innerText = '✅ Merged! Ready to publish.';
+        toast('Files merged successfully!', 'success');
+    } catch(e) {
+        status.innerText = '❌ Merge failed: ' + e.message;
+        toast('Merge failed: ' + e.message, 'error');
+    }
+}
+
+function doMerge(videoFile, audioFile) {
+    return new Promise((resolve, reject) => {
+        const video  = document.createElement('video');
+        video.src    = URL.createObjectURL(videoFile);
+        video.muted  = true;
+        video.crossOrigin = 'anonymous';
+
+        video.onloadedmetadata = () => {
+            const canvas   = document.getElementById('mergeCanvas');
+            const ctx      = canvas.getContext('2d');
+            const stream   = canvas.captureStream(30);
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const dest     = audioCtx.createMediaStreamDestination();
+            const audio    = new Audio(URL.createObjectURL(audioFile));
+            audio.crossOrigin = 'anonymous';
+
+            audio.oncanplaythrough = () => {
+                video.play();
+                audio.play();
+                const src = audioCtx.createMediaElementSource(audio);
+                src.connect(dest);
+                stream.addTrack(dest.stream.getAudioTracks()[0]);
+
+                const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+                    ? 'video/webm;codecs=vp9,opus' : 'video/webm';
+                const recorder = new MediaRecorder(stream, { mimeType });
+                const chunks   = [];
+
+                recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+                recorder.onstop = () => {
+                    audioCtx.close();
+                    resolve(new Blob(chunks, { type: 'video/webm' }));
+                };
+
+                recorder.start(100);
+                const draw = () => {
+                    if (audio.ended) { recorder.stop(); return; }
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    requestAnimationFrame(draw);
+                };
+                draw();
+
+                // Safety timeout: stop after 90 seconds max
+                setTimeout(() => { if (recorder.state === 'recording') recorder.stop(); }, 90000);
+            };
+            audio.onerror = reject;
+        };
+        video.onerror = reject;
+    });
+}
+
+// ─── YOUTUBE UPLOAD ────────────────────────────────────────
+async function uploadToYouTube() {
+    if (!state.ytToken)     { toast('Connect YouTube first', 'error'); return; }
+    if (!state.currentGen)  { toast('Generate a script first', 'error'); return; }
+    if (!state.mergedBlob)  { toast('Merge your audio + video first (Step 3)', 'error'); return; }
+
+    setProgress(10, 'Initializing upload...');
+
+    const meta = {
+        snippet: {
+            title:       document.getElementById('resTitle').value || state.currentGen.title,
+            description: (document.getElementById('resDesc').value || state.currentGen.description || '') + '\n\n#Shorts #History',
+            tags:        state.currentGen.tags || [],
+            categoryId:  '27'
+        },
+        status: { privacyStatus:'public', selfDeclaredMadeForKids: false }
+    };
+
+    try {
+        // Step 1: get resumable upload URL
+        const initRes = await fetch('https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status', {
+            method:  'POST',
+            headers: { 'Authorization': `Bearer ${state.ytToken}`, 'Content-Type': 'application/json', 'X-Upload-Content-Type': 'video/webm', 'X-Upload-Content-Length': state.mergedBlob.size },
+            body: JSON.stringify(meta)
+        });
+
+        if (!initRes.ok) {
+            const err = await initRes.json();
+            throw new Error(err.error?.message || 'Failed to initialize upload');
+        }
+
+        const uploadUrl = initRes.headers.get('Location');
+        if (!uploadUrl) throw new Error('No upload URL returned — check OAuth permissions');
+
+        setProgress(30, 'Uploading video...');
+
+        // Step 2: upload binary
+        const upRes = await fetch(uploadUrl, {
+            method:  'PUT',
+            headers: { 'Content-Type': 'video/webm', 'Content-Length': state.mergedBlob.size },
+            body:    state.mergedBlob
+        });
+
+        if (!upRes.ok) {
+            const err = await upRes.json();
+            throw new Error(err.error?.message || 'Upload failed');
+        }
+
+        const result = await upRes.json();
+        const videoId = result.id;
+
+        setProgress(100, 'Posted!');
+
+        // Save to history
+        state.history.unshift({ id: videoId, title: meta.snippet.title, date: new Date().toISOString(), url: `https://youtu.be/${videoId}` });
+        localStorage.setItem('hs_history', JSON.stringify(state.history));
+
+        // Remove from queue if it was there
+        state.queue = state.queue.filter(q => q.title !== meta.snippet.title);
+        localStorage.setItem('hs_queue', JSON.stringify(state.queue));
+        updateQueueBadge();
+        updateStats();
+
+        document.getElementById('successLink').classList.remove('hidden');
+        document.getElementById('ytLink').href = `https://youtu.be/${videoId}`;
+        document.getElementById('ytLink').innerText = `✅ View on YouTube → youtu.be/${videoId}`;
+
+        toast('Video posted to YouTube! 🎉', 'success');
+        state.mergedBlob = null;
+
+    } catch(e) {
+        setProgress(0, '');
+        toast('Upload error: ' + e.message, 'error');
+    }
+}
+
+function setProgress(val, text) {
+    document.getElementById('progressContainer').classList.toggle('hidden', val === 0 && !text);
+    document.getElementById('progressBar').style.width = val + '%';
+    document.getElementById('progressText').innerText  = text;
+}
+
+// ─── SCHEDULER ─────────────────────────────────────────────
+function startScheduler() {
+    setInterval(async () => {
+        const now    = new Date();
+        const hhmm   = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+        const dayOfW = now.getDay(); // 0 = Sun
+
+        const s        = state.schedule;
+        let shouldRun  = false;
+
+        if (s.freq === 'daily')  shouldRun = (hhmm === s.time && now.getSeconds() < 30);
+        if (s.freq === '2days')  shouldRun = (hhmm === s.time && now.getSeconds() < 30 && now.getDate() % 2 === 0);
+        if (s.freq === 'weekly') shouldRun = (hhmm === s.time && now.getSeconds() < 30 && dayOfW === 1);
+        if (s.freq === 'custom') shouldRun = (hhmm === s.time && now.getSeconds() < 30 && s.days.includes(dayOfW));
+
+        if (shouldRun && state.selectedCats.length > 0) {
+            const lastRun = parseInt(localStorage.getItem('hs_last_auto') || '0');
+            if (Date.now() - lastRun > 60000) { // prevent double-trigger
+                localStorage.setItem('hs_last_auto', Date.now());
+                toast('⚡ Auto-generating scheduled content...', 'info');
+                await generateScript();
+                saveToQueue();
+            }
+        }
+
+        // Countdown display
+        const next  = getNextRunTime();
+        const diff  = next - Date.now();
+        const hh    = Math.floor(diff / 3600000);
+        const mm    = Math.floor((diff % 3600000) / 60000);
+        const ss    = Math.floor((diff % 60000) / 1000);
+        document.getElementById('countdown').innerText =
+            `Next auto-run in ${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
+
+    }, 1000);
+}
+
+function getNextRunTime() {
+    const [h, m]   = state.schedule.time.split(':').map(Number);
+    const next     = new Date();
+    next.setHours(h, m, 0, 0);
+    if (next <= new Date()) next.setDate(next.getDate() + 1);
+    return next;
+}
+
+// ─── HELPERS ───────────────────────────────────────────────
+function showTab(id) {
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    const navBtn = document.getElementById('nav-' + id);
+    if (navBtn) navBtn.classList.add('active');
+    const titles = { dashboard:'Dashboard', generator:'Generator', queue:'Queue & History', settings:'Settings' };
+    document.getElementById('tabTitle').innerText = titles[id] || id;
+    if (id === 'queue') renderQueue();
+}
+
+function exportData() {
+    if (!state.history.length) { toast('No history to export', 'info'); return; }
+    const csv  = ['Title,Date,URL', ...state.history.map(h => `"${h.title}","${h.date}","${h.url}"`)].join('\n');
+    const blob = new Blob([csv], { type:'text/csv' });
+    const a    = document.createElement('a');
+    a.href     = URL.createObjectURL(blob);
+    a.download = 'historyshorts_history.csv';
+    a.click();
+}
+
+function updateKeys() {
+    const g  = document.getElementById('setGemini').value.trim();
+    const cid= document.getElementById('setClientId').value.trim();
+    if (g)   { localStorage.setItem('hs_gemini_key', g);    state.geminiKey  = g; }
+    if (cid) { localStorage.setItem('hs_yt_client_id', cid); state.ytClientId = cid; }
+    toast('Keys updated!', 'success');
+}
+
+function resetApp() {
+    if (!confirm('This will erase all your data, keys, history and settings. Are you sure?')) return;
+    localStorage.clear();
+    location.reload();
+}
+
+function toast(msg, type = 'info') {
+    const el = document.getElementById('toast');
+    const colors = { success:'bg-green-900 text-green-300 border border-green-700', error:'bg-red-900 text-red-300 border border-red-700', info:'bg-gray-800 text-gray-200 border border-gray-700' };
+    el.className = `toast ${colors[type]}`;
+    el.innerText = msg;
+    el.classList.remove('hidden');
+    setTimeout(() => el.classList.add('hidden'), 3500);
+}
+</script>
+</body>
+</html>
